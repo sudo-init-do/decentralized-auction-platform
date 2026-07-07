@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Decentralized Auction House</title>
+
+<!--
+  Decentralized Auction House — single self-contained frontend.
+
+  - Plain HTML/CSS/JS. No build step, no framework.
+  - ethers.js v6 loaded from a CDN (cdnjs) with a jsdelivr fallback.
+  - Talks to MetaMask, which talks to the AuctionPlatform smart contract.
+
+  Everything (markup, styles, logic) lives in this one file so it can be opened
+  directly in a browser by double-clicking it.
+-->
+
+<!-- ethers.js v6 from cdnjs. If it fails to load, the fallback <script> below loads jsdelivr. -->
+<script
+  src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.2/ethers.umd.min.js"
+  crossorigin="anonymous"
+></script>
+<script>
+  // Fallback: if cdnjs did not define `ethers`, pull it from jsdelivr instead.
+  if (typeof window.ethers === "undefined") {
+    document.write(
+      '<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.2/dist/ethers.umd.min.js"><\/script>'
+    );
+  }
+</script>
+
+<style>
+  :root {
+    --bg: #0f1226;
+    --bg-soft: #171a35;
+    --card: #1d2142;
+    --card-2: #232850;
+    --line: #2e3566;
+    --ink: #eef1ff;
+    --muted: #9aa3d4;
+    --accent: #6c8cff;
+    --accent-2: #9b6cff;
+    --good: #38d39f;
+    --warn: #ffcc66;
+    --bad: #ff6b8a;
+    --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+    background: radial-gradient(1200px 600px at 20% -10%, #232a5e 0%, transparent 60%),
+                radial-gradient(900px 500px at 100% 0%, #3a2360 0%, transparent 55%),
+                var(--bg);
+    color: var(--ink);
+    min-height: 100vh;
+  }
+
+  a { color: var(--accent); }
+
+  header.app {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 20px 28px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(15, 18, 38, 0.6);
+    backdrop-filter: blur(6px);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .brand .logo {
+    width: 42px; height: 42px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    display: grid; place-items: center;
+    font-size: 22px;
+    box-shadow: var(--shadow);
+  }
+  .brand h1 {
+    font-size: 19px;
+    margin: 0;
+    letter-spacing: 0.2px;
+  }
+  .brand p {
+    margin: 2px 0 0;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .wallet {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .chip {
+    font-size: 12px;
+    padding: 6px 11px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--bg-soft);
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .chip b { color: var(--ink); font-weight: 600; }
+
+  button {
+    font: inherit;
+    cursor: pointer;
+    border: none;
+    border-radius: 10px;
+    padding: 10px 16px;
+    color: white;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    box-shadow: var(--shadow);
+    transition: transform 0.05s ease, opacity 0.2s ease;
+  }
+  button:hover { opacity: 0.93; }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+  button.ghost {
+    background: transparent;
+    border: 1px solid var(--line);
+    box-shadow: none;
+    color: var(--ink);
+  }
+  button.small { padding: 7px 12px; font-size: 13px; }
+
+  main {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 26px 22px 80px;
+  }
+
+  .panel {
+    background: linear-gradient(180deg, var(--card), var(--card-2));
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 20px 22px;
+    margin-bottom: 22px;
+    box-shadow: var(--shadow);
+  }
+  .panel h2 {
+    margin: 0 0 4px;
+    font-size: 16px;
+  }
+  .panel .hint { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 6px; flex: 1 1 180px; }
+  .field label { font-size: 12px; color: var(--muted); }
+  input, select, textarea {
+    font: inherit;
+    color: var(--ink);
+    background: var(--bg-soft);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    width: 100%;
+  }
+  textarea { resize: vertical; min-height: 44px; }
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .addr-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .addr-bar input { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; }
+
+  /* Auction cards */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+    gap: 18px;
+  }
+  .card {
+    background: linear-gradient(180deg, var(--card), var(--card-2));
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 18px;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .card-top h3 { margin: 0; font-size: 17px; }
+  .lot { font-size: 12px; color: var(--muted); }
+  .desc { font-size: 13px; color: var(--muted); margin: 0; line-height: 1.5; }
+
+  .pill {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    padding: 5px 10px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .pill.live      { background: rgba(56,211,159,0.15); color: var(--good); border:1px solid rgba(56,211,159,0.4);}
+  .pill.soon      { background: rgba(255,204,102,0.15); color: var(--warn); border:1px solid rgba(255,204,102,0.4);}
+  .pill.awaiting  { background: rgba(155,108,255,0.18); color: #c2acff; border:1px solid rgba(155,108,255,0.5);}
+  .pill.closed    { background: rgba(255,107,138,0.13); color: var(--bad); border:1px solid rgba(255,107,138,0.35);}
+
+  .stat { display: flex; justify-content: space-between; font-size: 13px; padding: 6px 0; border-bottom: 1px dashed var(--line); }
+  .stat:last-of-type { border-bottom: none; }
+  .stat .k { color: var(--muted); }
+  .stat .v { font-weight: 600; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+  .me { color: var(--good); font-weight: 700; }
+
+  .countdown {
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    font-size: 20px;
+    font-weight: 700;
+    padding: 8px;
+    border-radius: 10px;
+    background: var(--bg-soft);
+    letter-spacing: 1px;
+  }
+  .countdown small { display:block; font-size: 11px; color: var(--muted); font-weight: 500; letter-spacing: 0.5px; }
+
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .actions input { flex: 1 1 90px; }
+
+  details.history { font-size: 13px; }
+  details.history summary { cursor: pointer; color: var(--accent); padding: 4px 0; }
+  .hist-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px dashed var(--line); }
+  .hist-row:last-child { border-bottom: none; }
+
+  /* Toast / status messages */
+  #toast {
+    position: fixed;
+    bottom: 22px; left: 50%;
+    transform: translateX(-50%) translateY(120%);
+    background: #11142e;
+    border: 1px solid var(--line);
+    color: var(--ink);
+    padding: 13px 18px;
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    max-width: 90vw;
+    transition: transform 0.25s ease;
+    z-index: 50;
+    font-size: 14px;
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+  #toast.good { border-color: rgba(56,211,159,0.6); }
+  #toast.bad  { border-color: rgba(255,107,138,0.6); }
+
+  .empty {
+    text-align: center;
+    color: var(--muted);
+    padding: 40px 20px;
+    font-size: 14px;
+  }
+  .footnote { color: var(--muted); font-size: 12px; text-align: center; margin-top: 30px; line-height: 1.6; }
+</style>
+</head>
+<body>
+
+<header class="app">
+  <div class="brand">
+    <div class="logo">⚖️</div>
+    <div>
+      <h1>Decentralized Auction House</h1>
+      <p>The smart contract is the auctioneer — no middleman.</p>
+    </div>
+  </div>
+  <div class="wallet">
+    <span id="networkChip" class="chip">Network: <b>—</b></span>
+    <span id="accountChip" class="chip">Not connected</span>
+    <button id="connectBtn">Connect MetaMask</button>
+  </div>
+</header>
+
+<main>
+  <!-- Contract address bar ----------------------------------------------------->
+  <section class="panel">
+    <h2>Contract address</h2>
+    <p class="hint">Paste the address of your deployed AuctionPlatform contract. It is saved in your browser so you don't have to paste it again.</p>
+    <div class="addr-bar">
+      <input id="contractAddr" placeholder="0x... deployed AuctionPlatform address" />
+      <button id="loadBtn" class="ghost">Load</button>
+      <button id="refreshBtn" class="ghost small">↻ Refresh</button>
+    </div>
+  </section>
+
+  <!-- Create auction ------------------------------------------------------------>
+  <section class="panel">
+    <h2>List an item for auction</h2>
+    <p class="hint">Create a new lot. You become the seller. You cannot bid on your own item.</p>
+    <div class="row">
+      <div class="field" style="flex: 2 1 220px;">
+        <label>Item name</label>
+        <input id="cName" placeholder="e.g. Vintage Watch" />
+      </div>
+      <div class="field" style="flex: 1 1 140px;">
+        <label>Starting price (ETH)</label>
+        <input id="cPrice" type="number" min="0" step="0.001" placeholder="1.0" />
+      </div>
+    </div>
+    <div class="row" style="margin-top: 12px;">
+      <div class="field" style="flex: 3 1 280px;">
+        <label>Description</label>
+        <textarea id="cDesc" placeholder="A short description of the item"></textarea>
+      </div>
+      <div class="field" style="flex: 1 1 110px;">
+        <label>Duration</label>
+        <input id="cDur" type="number" min="1" step="1" placeholder="1" />
+      </div>
+      <div class="field" style="flex: 1 1 110px;">
+        <label>Unit</label>
+        <select id="cUnit">
+          <option value="60">Minutes</option>
+          <option value="3600" selected>Hours</option>
+          <option value="86400">Days</option>
+        </select>
+      </div>
+      <div class="field" style="flex: 0 0 auto; justify-content: flex-end;">
+        <label>&nbsp;</label>
+        <button id="createBtn">Create auction</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Auction list -------------------------------------------------------------->
+  <section>
+    <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 14px;">
+      <h2 style="margin:0;">Auctions</h2>
+      <span id="countChip" class="chip">0 lots</span>
+    </div>
+    <div id="auctions" class="grid"></div>
+    <div id="emptyState" class="empty">Connect your wallet and load a contract address to see auctions.</div>
+  </section>
+
+  <p class="footnote">
+    Free to test on the <b>Remix VM</b> and the <b>Sepolia testnet</b> — no real money required.<br />
+    Built with plain HTML/CSS/JS + ethers.js v6 + MetaMask.
+  </p>
+</main>
+
+<div id="toast"></div>
+
+<script>
+/* ============================================================================
+   Application logic
+   ----------------------------------------------------------------------------
+   Three players (as explained in the report):
+     - This website (what you see)
+     - MetaMask     (your wallet — signs and pays for transactions)
+     - The contract (the auctioneer living on Ethereum)
+   ========================================================================== */
+
+// The pieces of the contract's interface (ABI) this website needs. The ABI tells
+// ethers.js the names and shapes of the functions/events so it can call them.
+const ABI = [
+  "function auctionCount() view returns (uint256)",
+  "function createAuction(string itemName, string description, uint256 startingPrice, uint256 durationSeconds) returns (uint256)",
+  "function placeBid(uint256 id) payable",
+  "function endAuction(uint256 id)",
+  "function withdrawRefund(uint256 id)",
+  "function getAuction(uint256 id) view returns (uint256 id_, address seller, string itemName, string description, uint256 startingPrice, uint256 highestBid, address highestBidder, uint256 endTime, bool ended)",
+  "function getBidHistory(uint256 id) view returns (tuple(address bidder, uint256 amount, uint256 timestamp)[])",
+  "function bidCount(uint256 id) view returns (uint256)",
+  "function myRefund(uint256 id) view returns (uint256)",
+  "event AuctionCreated(uint256 indexed id, address indexed seller, string itemName, uint256 startingPrice, uint256 endTime)",
+  "event BidPlaced(uint256 indexed id, address indexed bidder, uint256 amount)",
+  "event AuctionEnded(uint256 indexed id, address indexed winner, uint256 amount)",
+  "event RefundWithdrawn(uint256 indexed id, address indexed bidder, uint256 amount)"
+];
+
+const LS_KEY = "auctionContractAddress";
+
+// Read-only fallback RPC. When MetaMask is NOT installed, the page can still DISPLAY auctions
+// by reading from a plain JSON-RPC endpoint (e.g. a local Hardhat node). Sending transactions
+// (bidding, closing, withdrawing) always still goes through MetaMask. You can override the URL
+// with ?rpc=http://host:port in the address bar.
+const DEFAULT_RPC_URL = "http://127.0.0.1:8545";
+function getRpcUrl() {
+  try {
+    const q = new URLSearchParams(window.location.search).get("rpc");
+    return q || DEFAULT_RPC_URL;
+  } catch (e) { return DEFAULT_RPC_URL; }
+}
+
+let provider = null;   // read-only connection to the blockchain
+let signer = null;     // the connected account (can send transactions)
+let account = null;    // the connected address string
+let contract = null;   // ethers Contract bound to the deployed address
+let auctionsCache = []; // last-fetched auctions, used to re-render the countdown each second
+
+/* ---- localStorage wrapped in try/catch so it never throws where storage is blocked ---- */
+function safeGet(key) {
+  try { return window.localStorage.getItem(key); } catch (e) { return null; }
+}
+function safeSet(key, val) {
+  try { window.localStorage.setItem(key, val); } catch (e) { /* ignore */ }
+}
+
+/* ---- Small UI helpers ---- */
+function toast(message, kind) {
+  const t = document.getElementById("toast");
+  t.textContent = message;
+  t.className = "show " + (kind || "");
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => { t.className = ""; }, 5200);
+}
+function shortAddr(a) {
+  if (!a || a === ethers.ZeroAddress) return "—";
+  return a.slice(0, 6) + "…" + a.slice(-4);
+}
+function isMe(a) {
+  return account && a && a.toLowerCase() === account.toLowerCase();
+}
+
+/* ---- Turn raw wallet/contract errors into human-readable messages ---- */
+function humanError(err) {
+  // MetaMask user rejected
+  if (err && (err.code === 4001 || err.code === "ACTION_REJECTED")) {
+    return "You rejected the request in MetaMask.";
+  }
+  // ethers/JSON-RPC nested error info
+  const info = (err && (err.info || err)) || {};
+  const code = info.error && info.error.code;
+  const lower = JSON.stringify(err && err.message ? err.message : err).toLowerCase();
+
+  if (lower.includes("insufficient funds")) {
+    return "Insufficient funds — your account doesn't have enough ETH for this bid plus gas.";
+  }
+  // Try to surface a Solidity revert reason string ("require" message)
+  const reason =
+    (err && err.reason) ||
+    (err && err.shortMessage) ||
+    (info.error && info.error.message) ||
+    "";
+  if (reason) {
+    // Strip noisy prefixes for readability
+    return "Transaction failed: " + String(reason).replace(/^execution reverted:?\s*/i, "").trim();
+  }
+  if (code) return "Wallet error (code " + code + ").";
+  return "Something went wrong. " + (err && err.message ? err.message : "");
+}
+
+/* ---- Connect MetaMask ---- */
+async function connect() {
+  if (typeof window.ethereum === "undefined") {
+    toast("MetaMask not found. Please install the MetaMask browser extension.", "bad");
+    return;
+  }
+  try {
+    provider = new ethers.BrowserProvider(window.ethereum);
+    await provider.send("eth_requestAccounts", []);
+    signer = await provider.getSigner();
+    account = await signer.getAddress();
+
+    const net = await provider.getNetwork();
+    const netName = prettyNetwork(net);
+    document.getElementById("networkChip").innerHTML = "Network: <b>" + netName + "</b>";
+    document.getElementById("accountChip").innerHTML = "<b>" + shortAddr(account) + "</b>";
+    document.getElementById("connectBtn").textContent = "Connected";
+
+    bindContract();         // (re)bind contract now that we have a signer
+    toast("Wallet connected.", "good");
+    await refresh();
+  } catch (err) {
+    toast(humanError(err), "bad");
+  }
+}
+
+function prettyNetwork(net) {
+  const id = Number(net.chainId);
+  const known = { 1: "Ethereum Mainnet", 11155111: "Sepolia testnet", 31337: "Hardhat / localhost", 1337: "Localhost" };
+  return known[id] || (net.name && net.name !== "unknown" ? net.name : "Chain " + id);
+}
+
+/* ---- Bind the contract object from the pasted address ---- */
+function bindContract() {
+  const addr = document.getElementById("contractAddr").value.trim();
+  if (!addr) { contract = null; return; }
+  if (!ethers.isAddress(addr)) { toast("That is not a valid contract address.", "bad"); contract = null; return; }
+  safeSet(LS_KEY, addr);
+  // Use the signer if we have one (so we can send transactions); else read-only provider.
+  const runner = signer || provider;
+  if (!runner) { contract = null; return; }
+  contract = new ethers.Contract(addr, ABI, runner);
+}
+
+/* ---- Read all auctions from the contract and render them ---- */
+async function refresh() {
+  const empty = document.getElementById("emptyState");
+  if (!provider) {
+    // Acquire a provider for read-only browsing even before connecting a wallet:
+    //   - MetaMask present  -> use it (and the user can later connect to send transactions)
+    //   - no wallet at all  -> fall back to a read-only JSON-RPC endpoint (local node etc.)
+    if (typeof window.ethereum !== "undefined") {
+      provider = new ethers.BrowserProvider(window.ethereum);
+    } else {
+      provider = new ethers.JsonRpcProvider(getRpcUrl());
+      const chip = document.getElementById("networkChip");
+      if (chip) chip.innerHTML = "Network: <b>read-only (" + getRpcUrl() + ")</b>";
+    }
+  }
+  if (!contract) bindContract();
+  if (!contract) {
+    empty.style.display = "block";
+    empty.textContent = "Paste a deployed contract address and click Load.";
+    return;
+  }
+
+  try {
+    const count = Number(await contract.auctionCount());
+    document.getElementById("countChip").textContent = count + (count === 1 ? " lot" : " lots");
+
+    const list = [];
+    for (let id = 1; id <= count; id++) {
+      const a = await contract.getAuction(id);
+      let refund = 0n;
+      if (account) {
+        try { refund = await contract.myRefund(id); } catch (e) { refund = 0n; }
+      }
+      list.push({
+        id: Number(a.id_), // NOTE: getAuction names its first return "id_" (with underscore)
+        seller: a.seller,
+        itemName: a.itemName,
+        description: a.description,
+        startingPrice: a.startingPrice,
+        highestBid: a.highestBid,
+        highestBidder: a.highestBidder,
+        endTime: Number(a.endTime),
+        ended: a.ended,
+        myRefund: refund
+      });
+    }
+    auctionsCache = list;
+    render();
+  } catch (err) {
+    empty.style.display = "block";
+    empty.textContent = "Could not read auctions. Is the address correct and on the right network?";
+    toast(humanError(err), "bad");
+  }
+}
+
+/* ---- Work out the status pill for an auction ---- */
+function statusOf(a, secsLeft) {
+  if (a.ended) return { cls: "closed", label: "Closed" };
+  if (secsLeft <= 0) return { cls: "awaiting", label: "Awaiting close" };
+  if (secsLeft <= 300) return { cls: "soon", label: "Ending soon" };
+  return { cls: "live", label: "Live" };
+}
+
+/* ---- Format remaining seconds as a live countdown ---- */
+function fmtCountdown(s) {
+  if (s <= 0) return "00:00:00";
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  return (d > 0 ? d + "d " : "") + pad(h) + ":" + pad(m) + ":" + pad(sec);
+}
+
+/* ---- Render all auction cards (called on refresh) ---- */
+function render() {
+  const wrap = document.getElementById("auctions");
+  const empty = document.getElementById("emptyState");
+
+  if (!auctionsCache.length) {
+    wrap.innerHTML = "";
+    empty.style.display = "block";
+    empty.textContent = "No auctions yet. Create the first lot above!";
+    return;
+  }
+  empty.style.display = "none";
+
+  const now = Math.floor(Date.now() / 1000);
+  wrap.innerHTML = auctionsCache.map((a) => {
+    const secsLeft = a.endTime - now;
+    const st = statusOf(a, secsLeft);
+    const hasBid = a.highestBid > 0n;
+    const sellerIsMe = isMe(a.seller);
+    const owedMe = a.myRefund && a.myRefund > 0n;
+
+    return `
+    <div class="card" data-id="${a.id}">
+      <div class="card-top">
+        <div>
+          <h3>${escapeHtml(a.itemName)}</h3>
+          <div class="lot">Lot #${a.id} • Seller
+            <span class="mono ${sellerIsMe ? "me" : ""}">${sellerIsMe ? "you" : shortAddr(a.seller)}</span>
+          </div>
+        </div>
+        <span class="pill ${st.cls}">${st.label}</span>
+      </div>
+
+      <p class="desc">${escapeHtml(a.description) || "<em>No description.</em>"}</p>
+
+      <div class="countdown" data-end="${a.endTime}" data-ended="${a.ended}">
+        ${a.ended ? "CLOSED" : fmtCountdown(secsLeft)}
+        <small>${a.ended ? "auction finished" : (secsLeft > 0 ? "time remaining" : "deadline passed — ready to close")}</small>
+      </div>
+
+      <div>
+        <div class="stat"><span class="k">Starting price</span><span class="v">${ethers.formatEther(a.startingPrice)} ETH</span></div>
+        <div class="stat"><span class="k">Highest bid</span><span class="v">${hasBid ? ethers.formatEther(a.highestBid) + " ETH" : "—"}</span></div>
+        <div class="stat"><span class="k">Highest bidder</span>
+          <span class="v mono ${isMe(a.highestBidder) ? "me" : ""}">${hasBid ? (isMe(a.highestBidder) ? "you" : shortAddr(a.highestBidder)) : "—"}</span>
+        </div>
+      </div>
+
+      ${renderActions(a, secsLeft, sellerIsMe, owedMe)}
+
+      <details class="history">
+        <summary>Bid history (${hasBid ? "view" : "none yet"})</summary>
+        <div class="hist-body" data-id="${a.id}">Loading…</div>
+      </details>
+    </div>`;
+  }).join("");
+
+  // Wire up the action buttons.
+  wrap.querySelectorAll("[data-action]").forEach((btn) => {
+    btn.addEventListener("click", onAction);
+  });
+  // Lazy-load bid history when a <details> is opened.
+  wrap.querySelectorAll("details.history").forEach((d) => {
+    d.addEventListener("toggle", function () {
+      if (this.open) loadHistory(this.querySelector(".hist-body"));
+    });
+  });
+}
+
+/* ---- The action area (bid / close / withdraw) for one card ---- */
+function renderActions(a, secsLeft, sellerIsMe, owedMe) {
+  const parts = [];
+  const canBid = !a.ended && secsLeft > 0 && !sellerIsMe;
+  const canClose = !a.ended && secsLeft <= 0;
+
+  if (canBid) {
+    parts.push(`
+      <div class="actions">
+        <input type="number" min="0" step="0.001" placeholder="Bid in ETH" data-bidinput="${a.id}" />
+        <button class="small" data-action="bid" data-id="${a.id}">Place bid</button>
+      </div>`);
+  } else if (sellerIsMe && !a.ended && secsLeft > 0) {
+    parts.push(`<div class="lot">You are the seller of this lot — you can't bid on it.</div>`);
+  }
+
+  if (canClose) {
+    parts.push(`<button class="small ghost" data-action="close" data-id="${a.id}">Close auction & pay seller</button>`);
+  }
+
+  if (owedMe) {
+    parts.push(`<button class="small" data-action="withdraw" data-id="${a.id}">Withdraw refund (${ethers.formatEther(a.myRefund)} ETH)</button>`);
+  }
+
+  return parts.join("");
+}
+
+/* ---- Handle a button click on a card ---- */
+async function onAction(ev) {
+  const btn = ev.currentTarget;
+  const id = Number(btn.dataset.id);
+  const action = btn.dataset.action;
+  if (!contract) { toast("Connect your wallet first.", "bad"); return; }
+  if (!signer) { toast("Connect your wallet to send transactions.", "bad"); return; }
+
+  try {
+    btn.disabled = true;
+    if (action === "bid") {
+      const input = document.querySelector(`[data-bidinput="${id}"]`);
+      const val = input && input.value.trim();
+      if (!val || Number(val) <= 0) { toast("Enter a bid amount in ETH.", "bad"); return; }
+      const wei = ethers.parseEther(val);
+      toast("Sending bid… confirm in MetaMask.");
+      const tx = await contract.placeBid(id, { value: wei });
+      await tx.wait();
+      toast("Bid placed on lot #" + id + "!", "good");
+    } else if (action === "close") {
+      toast("Closing auction… confirm in MetaMask.");
+      const tx = await contract.endAuction(id);
+      await tx.wait();
+      toast("Lot #" + id + " closed and seller paid.", "good");
+    } else if (action === "withdraw") {
+      toast("Withdrawing refund… confirm in MetaMask.");
+      const tx = await contract.withdrawRefund(id);
+      await tx.wait();
+      toast("Refund withdrawn from lot #" + id + ".", "good");
+    }
+    await refresh();
+  } catch (err) {
+    toast(humanError(err), "bad");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ---- Load and display a lot's bid history ---- */
+async function loadHistory(container) {
+  if (!container || !contract) return;
+  const id = Number(container.dataset.id);
+  try {
+    const hist = await contract.getBidHistory(id);
+    if (!hist.length) { container.innerHTML = `<div class="lot">No bids yet.</div>`; return; }
+    container.innerHTML = hist.map((b, i) => {
+      const when = new Date(Number(b.timestamp) * 1000).toLocaleString();
+      return `<div class="hist-row">
+        <span>#${i + 1} <span class="mono ${isMe(b.bidder) ? "me" : ""}">${isMe(b.bidder) ? "you" : shortAddr(b.bidder)}</span></span>
+        <span class="v">${ethers.formatEther(b.amount)} ETH <span class="lot">(${when})</span></span>
+      </div>`;
+    }).join("");
+  } catch (err) {
+    container.innerHTML = `<div class="lot">Could not load history.</div>`;
+  }
+}
+
+/* ---- Create a new auction ---- */
+async function createAuction() {
+  if (!contract) { toast("Load a contract address first.", "bad"); return; }
+  if (!signer) { toast("Connect your wallet first.", "bad"); return; }
+
+  const name = document.getElementById("cName").value.trim();
+  const desc = document.getElementById("cDesc").value.trim();
+  const priceStr = document.getElementById("cPrice").value.trim();
+  const durNum = Number(document.getElementById("cDur").value.trim());
+  const unit = Number(document.getElementById("cUnit").value);
+
+  if (!name) { toast("Enter an item name.", "bad"); return; }
+  if (!priceStr || Number(priceStr) < 0) { toast("Enter a valid starting price.", "bad"); return; }
+  if (!durNum || durNum <= 0) { toast("Enter a valid duration.", "bad"); return; }
+
+  try {
+    const price = ethers.parseEther(priceStr);
+    const duration = Math.floor(durNum * unit); // convert the chosen unit to seconds
+    toast("Creating auction… confirm in MetaMask.");
+    const tx = await contract.createAuction(name, desc, price, duration);
+    await tx.wait();
+    toast("Auction created!", "good");
+    // Clear the form.
+    document.getElementById("cName").value = "";
+    document.getElementById("cDesc").value = "";
+    document.getElementById("cPrice").value = "";
+    document.getElementById("cDur").value = "";
+    await refresh();
+  } catch (err) {
+    toast(humanError(err), "bad");
+  }
+}
+
+/* ---- Escape user-supplied text before putting it in the page (basic XSS safety) ---- */
+function escapeHtml(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+/* ---- The live countdown: re-tick every second WITHOUT re-fetching from chain ---- */
+setInterval(() => {
+  const now = Math.floor(Date.now() / 1000);
+  document.querySelectorAll(".countdown").forEach((el) => {
+    if (el.dataset.ended === "true") return;
+    const end = Number(el.dataset.end);
+    const left = end - now;
+    const small = el.querySelector("small");
+    el.childNodes[0].nodeValue = (left > 0 ? fmtCountdown(left) : "00:00:00") + " ";
+    if (small) small.textContent = left > 0 ? "time remaining" : "deadline passed — ready to close";
+  });
+  // Also refresh the status pills as time crosses thresholds.
+  document.querySelectorAll(".card").forEach((card) => {
+    const a = auctionsCache.find((x) => x.id === Number(card.dataset.id));
+    if (!a || a.ended) return;
+    const left = a.endTime - now;
+    const pill = card.querySelector(".pill");
+    if (!pill) return;
+    const st = statusOf(a, left);
+    pill.className = "pill " + st.cls;
+    pill.textContent = st.label;
+  });
+}, 1000);
+
+/* ---- Wire up top-level buttons and restore saved state ---- */
+document.getElementById("connectBtn").addEventListener("click", connect);
+document.getElementById("createBtn").addEventListener("click", createAuction);
+document.getElementById("loadBtn").addEventListener("click", () => { bindContract(); refresh(); });
+document.getElementById("refreshBtn").addEventListener("click", refresh);
+
+// Restore a previously-saved contract address and auto-load if we already have one.
+(function init() {
+  // A contract address can also be passed in the link as ?contract=0x... (handy for demos).
+  let fromUrl = null;
+  try { fromUrl = new URLSearchParams(window.location.search).get("contract"); } catch (e) {}
+
+  const addr = fromUrl || safeGet(LS_KEY);
+  if (addr) {
+    document.getElementById("contractAddr").value = addr;
+    if (fromUrl) safeSet(LS_KEY, addr);
+    // Auto-load so the page shows live auctions immediately, even read-only without a wallet.
+    bindContract();
+    refresh();
+  }
+
+  // React to wallet account / network changes.
+  if (typeof window.ethereum !== "undefined") {
+    window.ethereum.on && window.ethereum.on("accountsChanged", () => location.reload());
+    window.ethereum.on && window.ethereum.on("chainChanged", () => location.reload());
+  }
+})();
+</script>
+</body>
+</html>

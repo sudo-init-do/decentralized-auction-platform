@@ -1,0 +1,20 @@
+{
+  "name": "decentralized-auction-platform",
+  "version": "1.0.0",
+  "description": "A smart-contract auction house on Ethereum where the contract is the auctioneer.",
+  "private": true,
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "node": "hardhat node",
+    "deploy:local": "hardhat run scripts/deploy.js --network localhost"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-chai-matchers": "^2.0.0",
+    "@nomicfoundation/hardhat-ethers": "^3.0.0",
+    "@nomicfoundation/hardhat-network-helpers": "^1.0.0",
+    "chai": "^4.3.0",
+    "ethers": "^6.13.0",
+    "hardhat": "^2.22.0"
+  }
+}
