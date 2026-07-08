@@ -3,21 +3,27 @@
 // Local chain:  npx hardhat node          (in one terminal)
 //               npx hardhat run scripts/deploy.js --network localhost   (in another)
 //
-// For Sepolia, the recommended free path in this project is Remix (see the README), but this
-// script also works if you add a Sepolia network + private key to hardhat.config.js.
+// Sepolia:      set PRIVATE_KEY (and optionally SEPOLIA_RPC_URL) in .env, then
+//               npx hardhat run scripts/deploy.js --network sepolia
 
 const { ethers } = require("hardhat");
 
 async function main() {
-  const [deployer] = await ethers.getSigners();
+  const signers = await ethers.getSigners();
+  if (signers.length === 0) {
+    throw new Error(
+      "No deployer account available. Set PRIVATE_KEY in .env (see hardhat.config.js)."
+    );
+  }
+  const [deployer] = signers;
   console.log("Deploying with account:", deployer.address);
 
   const Factory = await ethers.getContractFactory("AuctionPlatform");
-  const auctionHouse = await Factory.deploy();
-  await auctionHouse.waitForDeployment();
+  const c = await Factory.deploy();
+  await c.waitForDeployment();
+  const addr = await c.getAddress();
 
-  const address = await auctionHouse.getAddress();
-  console.log("AuctionPlatform deployed to:", address);
+  console.log("Deployed to: " + addr);
   console.log("Paste this address into the frontend (index.html) to connect.");
 }
 

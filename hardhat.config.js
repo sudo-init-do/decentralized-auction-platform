@@ -1,6 +1,11 @@
+require("dotenv").config();
 require("@nomicfoundation/hardhat-ethers");
 require("@nomicfoundation/hardhat-chai-matchers");
 require("@nomicfoundation/hardhat-network-helpers");
+
+const SEPOLIA_RPC_URL =
+  process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia-rpc.publicnode.com";
+const PRIVATE_KEY = process.env.PRIVATE_KEY;
 
 /**
  * Hardhat configuration for the Decentralized Auction Platform.
@@ -24,6 +29,10 @@ module.exports = {
     // The built-in in-process Hardhat network used by `npx hardhat test`.
     hardhat: {
       hardfork: "shanghai",
+    },
+    sepolia: {
+      url: SEPOLIA_RPC_URL,
+      accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
     },
   },
 };
